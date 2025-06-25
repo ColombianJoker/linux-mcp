@@ -99,7 +99,7 @@ def address(user: str = "e", host: str = "localhost", command: str = "ifconfig -
                   print(f"Found IP addresses: {ip_addresses}")
             else:
                 if DEBUG_MODE:
-                    print(f"Error running 'ifconfig -a': {result.stderr}")
+                    print(f"Error running '{command}': {result.stderr}")
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -107,6 +107,7 @@ def address(user: str = "e", host: str = "localhost", command: str = "ifconfig -
 
 fast_mcp.add_tool(address)
 
+# Checks if a host is alive using ping
 def alive(host: str, count: int = 1, timeout: int = 1) -> str:
     """
     Checks if a host is alive using ping
@@ -165,6 +166,65 @@ def alive(host: str, count: int = 1, timeout: int = 1) -> str:
 
 fast_mcp.add_tool(alive)
 
+# Asks what address a host have
+def users(user: str = "e", host: str = "localhost", command: str = "cat /etc/passwd", system: bool = False) -> List[str]:
+    """
+    Asks a host what users does it have
+  
+    Args:
+        user (str): The username to connect with.
+        host (str): The hostname or IP address of the remote machine.
+        command (str): The command to get the IP address of the remote machine
+        system (bool): If to include system users in the list
+
+    Returns:
+        List[str]: A list of users excluding root
+                   Returns an empty list if no valid users are found or an error occurs.
+    """
+    user_list: List(str) = []
+    SYSTEM_USER: int = 1000
+    try:
+        if DEBUG_MODE:
+            print(f"Attempting to connect to {user}@{host}...")
+        with Connection(host, user=user) as c:
+            result: Result = c.run(command, hide=True)
+            print(f"{result=}")
+            if result.ok:
+                output = result.stdout
+                # if DEBUG_MODE:
+                #     print(f"{output=}")
+                # print("Command executed successfully. Parsing output...")
+                # Regular expression to find IPv4 addresses
+                user_pattern = re.compile(r'^([a-z][A-Za-z]*):(?:x)?:([0-9]{1,})?:')
+                for output_line in output.split('\n'):
+                    # if DEBUG_MODE:
+                    #     print(f"{output_line=}")
+                    found_user = user_pattern.findall(output_line)
+                    if len(found_user)>0:
+                        found_user = found_user[0]
+                        the_username = found_user[0]
+                        try:
+                          the_userid = int(found_user[1])
+                        except ValueError:
+                          the_userid = -1
+                        if DEBUG_MODE:
+                            print(f"{the_username=} {the_userid=}")
+                        if system or ((not system) and (the_userid>=SYSTEM_USER)):
+                            if (the_username != 'root') and (the_username not in user_list):
+                                user_list.append(the_username)
+                if DEBUG_MODE:
+                    print(f"Found users: {user_list}")
+            else:
+                if DEBUG_MODE:
+                    print(f"Error running '{command}': {result.stderr}")
+
+    except Exception as e:
+        if DEBUG_MODE:
+          print(f"An error occurred: {e}")
+    return sorted(user_list)
+
+fast_mcp.add_tool(users)
+
 # Add a dynamic greeting resource
 @fast_mcp.resource("greeting://{name}")
 def greeting(name: str) -> str:
@@ -184,7 +244,7 @@ def greeting(name: str) -> str:
 if __name__ == "__main__":
     if (getenv("DEBUG")=="True") or (getenv("DEBUG")=="true"):
         DEBUG_MODE = True
-        print(f"{alive('192.168.25.1')=}")
+        print(f"{users('e', 'scruffy', system=True)=}")
     else:
       print("Starting Linux-MCP server...")
       fast_mcp.run() # By default, this uses the "stdio" transport for local execution
