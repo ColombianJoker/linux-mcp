@@ -1,7 +1,9 @@
 #!/usr/bin/env python3.11
 import mcp
 from os import getenv
+import platform
 import re
+import subprocess
 from mcp.server.fastmcp import FastMCP
 from fabric import Connection, Result
 from typing import List, Optional
@@ -105,6 +107,63 @@ def address(user: str = "e", host: str = "localhost", command: str = "ifconfig -
 
 fast_mcp.add_tool(address)
 
+def alive(host: str, count: int = 1, timeout: int = 1) -> str:
+    """
+    Checks if a host is alive using ping
+
+    Args:
+        host (str): The hostname or IP address to ping.
+        count (int): Number of ping packets to send.
+        timeout (int): Timeout in seconds for each ping.
+
+    Returns:
+        str: SUCCESS if the host is reachable (at least one ping successful), FAILURE otherwise.
+    """
+    param = '-n' if platform.system().lower() == 'windows' else '-c'
+    timeout_param = '-w' if platform.system().lower() == 'windows' else '-W'
+
+    command = ['ping', param, str(count), timeout_param, str(timeout), host]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,  
+            check=False 
+        )
+
+        if result.returncode == 0:
+            if platform.system().lower() == 'windows':
+                if "Received = 1" in result.stdout and "Lost = 0" in result.stdout:
+                    return "SUCCESS"
+            else: # Linux/macOS
+                match = re.search(r'(\d+) packets transmitted, (\d+) received', result.stdout)
+                if match:
+                    transmitted = int(match.group(1))
+                    received = int(match.group(2))
+                    if received > 0:
+                        return "SUCCESS"
+                else: # Fallback for different output formats
+                    if "0% packet loss" in result.stdout:
+                        return "SUCCESS"
+        elif result.returncode == 2 and platform.system().lower() != 'windows':
+            if "unknown host" in result.stderr.lower() or "destination host unreachable" in result.stderr.lower():
+                return "FAILURE"
+            match = re.search(r'(\d+) packets transmitted, (\d+) received', result.stdout)
+            if match and int(match.group(2)) > 0:
+                return "SUCCESS"
+
+        return False # No successful ping detected
+    except FileNotFoundError:
+        if DEBUG_MODE:
+          print(f"Error: 'ping' command not found. Please ensure it's in your system's PATH.")
+        return "FAILURE"
+    except Exception as e:
+        if DEBUG_MODE:
+          print(f"An unexpected error occurred while pinging {host}: {e}")
+        return "FAILURE"
+
+fast_mcp.add_tool(alive)
 
 # Add a dynamic greeting resource
 @fast_mcp.resource("greeting://{name}")
@@ -125,7 +184,7 @@ def greeting(name: str) -> str:
 if __name__ == "__main__":
     if (getenv("DEBUG")=="True") or (getenv("DEBUG")=="true"):
         DEBUG_MODE = True
-        print(f"{address('admin', 'hermes')=}")
+        print(f"{alive('192.168.25.1')=}")
     else:
       print("Starting Linux-MCP server...")
       fast_mcp.run() # By default, this uses the "stdio" transport for local execution
