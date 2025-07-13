@@ -66,7 +66,7 @@ fast_mcp.add_tool(hostname)
 def address(user: str = "e", host: str = "localhost", command: str = "ifconfig -a") -> List[str]:
     """
     Asks a host what addresses it have
-  
+
     Args:
         user (str): The username to connect with.
         host (str): The hostname or IP address of the remote machine.
@@ -129,8 +129,8 @@ def alive(host: str, count: int = 1, timeout: int = 1) -> str:
         result = subprocess.run(
             command,
             capture_output=True,
-            text=True,  
-            check=False 
+            text=True,
+            check=False
         )
 
         if result.returncode == 0:
@@ -166,11 +166,11 @@ def alive(host: str, count: int = 1, timeout: int = 1) -> str:
 
 fast_mcp.add_tool(alive)
 
-# Asks what address a host have
+# Asks what users a host have
 def users(user: str = "e", host: str = "localhost", command: str = "cat /etc/passwd", system: bool = False) -> List[str]:
     """
     Asks a host what users does it have
-  
+
     Args:
         user (str): The username to connect with.
         host (str): The hostname or IP address of the remote machine.
@@ -225,6 +225,66 @@ def users(user: str = "e", host: str = "localhost", command: str = "cat /etc/pas
 
 fast_mcp.add_tool(users)
 
+# Asks what filesystems a host have
+def filesystems(user: str = "e", host: str = "localhost", command: str = "df -h", local: bool = False) -> List[str]:
+    """
+    Asks a host what filesystems does it have
+
+    Args:
+        user (str): The username to connect with.
+        host (str): The hostname or IP address of the remote machine.
+        command (str): The command to get the IP address of the remote machine
+        local (bool): If to include system users in the list
+
+    Returns:
+        List[str]: A list of filesystems, may be only local or everything if local is False
+                   Returns an empty list if no valid filesystems are found or an error occurs.
+    """
+    fs_list: List(str) = []
+    try:
+        if DEBUG_MODE:
+            print(f"Attempting to connect to {user}@{host}...")
+        with Connection(host, user=user) as c:
+            result: Result = c.run(command, hide=True)
+            print(f"{result=}")
+            if result.ok:
+                output_lines = result.stdout.strip().split("\n")
+                # if DEBUG_MODE:
+                #     print(f"{output=}")
+                # print("Command executed successfully. Parsing output...")
+                # Regular expression to find filesystems starting with
+                #       /dev/ (block devices)
+                #       //hostname/ (samba client filesystems)
+                #       hostname:/  (nfs client filesystems)
+                if len(output_lines)<2:
+                    return []
+                if local:
+                    if DEBUG_MODE:
+                        print("Local filesystems only")
+                    fs_pattern = re.compile(r'^(?:/dev/).*?\s+([^\s]+)$')
+                else:
+                    fs_pattern = re.compile(r'^(?:/dev/|//[\w.-]+/|[\w.-]+:/).*?\s+([^\s]+)$')
+                fs_list = []
+                for output_line in output_lines:
+                    if DEBUG_MODE:
+                        print(f"{output_line=}")
+                    match = fs_pattern.search(output_line)
+                    if match:
+                        fs_list.append(match.group(1))
+                if not fs_list:
+                    if DEBUG_MODE:
+                        print("No filesystems found.")
+                    return []
+        if DEBUG_MODE:
+            print(f"%s: {fs_list=}"%("Local filesystems only" if local else "All filesystems"))
+        return fs_list
+    except Exception as e:
+        if DEBUG_MODE:
+          print(f"An error occurred: {e}")
+    return sorted(fs_list)
+
+fast_mcp.add_tool(filesystems)
+
 # Add a dynamic greeting resource
 @fast_mcp.resource("greeting://{name}")
 def greeting(name: str) -> str:
@@ -244,7 +304,7 @@ def greeting(name: str) -> str:
 if __name__ == "__main__":
     if (getenv("DEBUG")=="True") or (getenv("DEBUG")=="true"):
         DEBUG_MODE = True
-        print(f"{users('e', 'scruffy', system=True)=}")
+        print(f"{filesystems('e', 'scruffy', local=False)}")
     else:
       print("Starting Linux-MCP server...")
       fast_mcp.run() # By default, this uses the "stdio" transport for local execution
